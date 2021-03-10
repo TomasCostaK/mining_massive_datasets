@@ -1,0 +1,108 @@
+version: '2'
+
+services:
+  spark-master:
+    container_name: spark-master
+    image: smatos/spark:2.4.4
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_NO_DAEMONIZE=1
+      - SPARK_PUBLIC_DNS=localhost
+    ports:
+      - '4040-4042:4040-4042'
+      - '8080:8080'
+    command:
+      - start-master.sh
+    networks:
+      - spark-cluster 
+    volumes:
+      - ./events:/tmp/spark-events
+      - ./data:/opt/bitnami/spark/work
+  spark-worker-1:
+    depends_on:
+      - spark-master
+    image: smatos/spark:2.4.4
+    ports: 
+      - '8081:8081'
+    command:
+      - start-slave.sh
+      - spark://spark-master:7077
+    environment:
+      - SPARK_NO_DAEMONIZE=1
+      - SPARK_PUBLIC_DNS=localhost
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    networks:
+      - spark-cluster
+    volumes:
+      - ./events:/tmp/spark-events
+  spark-worker-2:
+    depends_on:
+      - spark-master
+    image: smatos/spark:2.4.4
+    ports: 
+      - '8082:8081'
+    command:
+      - start-slave.sh
+      - spark://spark-master:7077
+    environment:
+      - SPARK_NO_DAEMONIZE=1
+      - SPARK_PUBLIC_DNS=localhost
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    networks:
+      - spark-cluster
+    volumes:
+      - ./events:/tmp/spark-events
+  jupyter-notebook:
+    depends_on:
+      - spark-master
+    container_name: jupyter-notebook
+    image: jupyter/all-spark-notebook:latest
+    ports:
+      - '8840:4040'
+      - '8880:8080'
+      - '8888-8890:8888-8890'
+    networks:
+      - spark-cluster
+    volumes:
+      - ./notebooks:/home/jovyan/work/notebooks
+      - ./events:/tmp/spark-events
+    environment:
+#      - PATH=$PATH:/usr/local/spark/bin
+#      - PYSPARK_DRIVER_PYTHON=jupyter
+#      - PYSPARK_DRIVER_PYTHON_OPTS="notebook --ip='*' --port=8888 --no-browser --notebook-dir=/home/jovyan/work/notebooks --allow-root --NotebookApp.token=''"
+#      - PYSPARK_PYTHON=python3
+      - GRANT_SUDO="yes"
+    user:
+      "root"
+    command:
+#      - /usr/local/spark/bin/pyspark
+      - jupyter
+      - notebook
+      - --ip='*'
+      - --port=8888
+      - --no-browser
+      - --notebook-dir=/home/jovyan/work/notebooks
+      - --allow-root
+      - --NotebookApp.token=''
+
+
+networks:
+  spark-cluster:
