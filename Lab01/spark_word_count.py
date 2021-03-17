@@ -3,6 +3,16 @@ from datetime import datetime
 import re
 import sys
 
+def parse_bigrams(line):
+    bigrams = []
+    unigrams = re.split(r'[^\w]+', line.lower())
+    for i in range(len(unigrams) - 1):
+        if len(unigrams[i])<3 or len(unigrams[i+1])<3:
+            continue     
+        bigram = unigrams[i] + "," + unigrams[i+1]
+        bigrams.append(bigram)
+    return bigrams
+
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         exit(-1)
@@ -10,9 +20,9 @@ if __name__ == "__main__":
     sc = SparkContext(appName="SparkIntro_WordCount")
 
     textfile = sc.textFile(sys.argv[1])
-    bigrams = textfile.flatMap(lambda line: re.split(r'[^\w]+', line.lower())) \
+    bigrams = textfile.flatMap(parse_bigrams) \
                             .filter(lambda w: len(w)>3) \
-                            .map(lambda tup: (tuple(x) for x in zip(tup[1],tup[1:]))) \
+                            .map(lambda bigram : (bigram, 1)) \
                             .reduceByKey(lambda a,b: a+b) \
                             .sortBy(lambda p: p[1], False)
     """
