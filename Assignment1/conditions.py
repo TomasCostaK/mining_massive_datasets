@@ -8,70 +8,74 @@ import collections
 # Este support deve ser 1000, mas
 SUPPORT_THRESHOLD = 6
 
-def preprocess_data(line):
-    # here we reorder the data that came in csv format
-    fields = re.split(',' ,line.lower())
-    #for i in range(len(fields) - 1):
-    single_case = (fields[2], fields[4])# code for the patient
-    return single_case
+def build_bigram(basket, filtered_diseases):
+    diseases = list(basket[1])
+    list_of_bigrams = []
+    for i in range(len(diseases)):
+        d1 = diseases[i]
+        if d1 not in filtered_diseases: continue
+        for j in range(i+1, len(diseases)):
+            d2 = diseases[j]
+            if d2 not in filtered_diseases: continue
+            list_of_bigrams.append((d1 + "," + d2, 1))
+    return list_of_bigrams
 
-def filter_baskets(baskets):
-    code_map = collections.defaultdict(lambda: 0)
 
-    for bucket in baskets.collect():
-        patient, codes = bucket
-        codes_array = re.split(',', codes)
-        for code in codes_array:
-            code_map[code] += 1
 
-    filtered_diseases = [ code for code,value in code_map.items() if value > SUPPORT_THRESHOLD ]
-    return filtered_diseases
-
-def frequent_items(baskets, filtered_diseases, k=2):
-    baskets = baskets.collect()
-    pair_items = collections.defaultdict(lambda: 0)
-
-    # iterating over all baskets
-    for basket in baskets:
-        # iterate over one item in basket: "basket"
-        baskets_array = re.split(",",basket[1])
-        for disease1 in baskets_array:
-            if disease1 not in filtered_diseases:
-                print("%s is not frequent monotonicity" % (disease1))
-                continue
-            for disease2 in baskets_array:
-                if disease1 != disease2 and disease2 in filtered_diseases: 
-                    pair_items[disease1,disease2] += 1
-    
-    # case where k = 2 and the problem is solved
-    if k == 2:
-        return sorted(pair_items.items(), key=lambda x: x[1])
-            
+def build_trigram(basket, filtered_diseases, filtered_bigrams):
+    diseases = list(basket[1])
+    list_of_trigrams = []
+    for i in range(len(diseases)):
+        d1 = diseases[i]
+        if d1 not in filtered_diseases: continue
+        for j in range(i+1, len(diseases)):
+            d2 = diseases[j]
+            if d2 not in filtered_diseases: continue
+            if d1 + "," + d2 not in filtered_bigrams: continue
+            for k in range(j+1, len(diseases)):
+                d3 = diseases[k]
+                if d3 not in filtered_diseases: continue
+                if d1 + "," + d3 not in filtered_bigrams or d2 + "," + d3 not in filtered_bigrams: continue
+                list_of_trigrams.append((d1 + "," + d2 + "," + d3, 1))
+    return list_of_trigrams            
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         exit(-1)
+
+    k = int(sys.argv[1])
+
+    if k != 2 and k != 3: exit(-1)
     
     # Starting context and opening file in command line
     sc = SparkContext(appName="Assignment1")
-    textfile = sc.textFile(sys.argv[1])
+    textfile = sc.textFile(sys.argv[2])
     
     # Mapping patient as bucket to several diseases
-    baskets = textfile.map(preprocess_data) \
-                            .reduceByKey(lambda a,b: a+","+b) 
+    baskets = textfile.map(lambda line: line.split(",")) \
+                        .map(lambda pair: (pair[2],pair[4])) \
+                        .groupByKey()
 
-    # Filter the baskets, 1st step of the A-Priori algorithm
-    filtered_diseases = filter_baskets(baskets)
+    filtered_diseases = baskets.flatMap(lambda line: [(code, 1) for code in line[1]]) \
+                                .reduceByKey(lambda a, b: a+b) \
+                                .filter(lambda line: line[1] > SUPPORT_THRESHOLD) \
+                                .map(lambda line: line[0]).collect()
 
-    # 2nd step of A-Priori Algorithm
-    frequent_items = frequent_items(baskets, filtered_diseases)
-    for item in frequent_items:
-        print(item)
-
-    baskets.filter(lambda a: len(re.split(',', a[1]))>SUPPORT_THRESHOLD) \
-                            .sortBy(lambda p: p[1], False)
+    bigrams = baskets.flatMap(lambda line: build_bigram(line, filtered_diseases))\
+                    .reduceByKey(lambda a, b: a+b)
 
     # Results formatting
+    if k == 2:
+        format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        bigrams.saveAsTextFile("{0}/{1}".format(sys.argv[3], format_time))
+        sc.stop()
+        exit(0)
+        
+    filtered_bigrams = bigrams.filter(lambda line: line[1] > SUPPORT_THRESHOLD).map(lambda line: line[0]).collect()
+
+    trigrams = baskets.flatMap(lambda line: build_trigram(line, filtered_diseases, filtered_bigrams))\
+                        .reduceByKey(lambda a, b: a+b)
+
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    baskets.saveAsTextFile("{0}/{1}".format(sys.argv[2], format_time))
+    trigrams.saveAsTextFile("{0}/{1}".format(sys.argv[3], format_time))
     sc.stop()
