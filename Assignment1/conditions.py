@@ -45,7 +45,6 @@ def build_trigram(basket, filtered_diseases, filtered_bigrams):
 def get_support(disease, confidence_rdd):
     x = disease.rfind(",")
     key = disease[:x]
-    print("am here", confidence_rdd.filter(lambda line: line[0] == key).values().collect())
     return confidence_rdd.filter(lambda line: line[0] == key).values().collect()[0]
 
 def get_probability(disease, baskets_rdd):
