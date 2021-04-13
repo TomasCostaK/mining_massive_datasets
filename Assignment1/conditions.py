@@ -62,7 +62,8 @@ if __name__ == "__main__":
                                 .map(lambda line: line[0]).collect()
 
     bigrams = baskets.flatMap(lambda line: build_bigram(line, filtered_diseases))\
-                    .reduceByKey(lambda a, b: a+b)
+                    .reduceByKey(lambda a, b: a+b) \
+                    .filter(lambda line: line[1] > SUPPORT_THRESHOLD)
 
     # Results formatting
     if k == 2:
@@ -71,10 +72,11 @@ if __name__ == "__main__":
         sc.stop()
         exit(0)
         
-    filtered_bigrams = bigrams.filter(lambda line: line[1] > SUPPORT_THRESHOLD).map(lambda line: line[0]).collect()
+    filtered_bigrams = bigrams.map(lambda line: line[0]).collect()
 
     trigrams = baskets.flatMap(lambda line: build_trigram(line, filtered_diseases, filtered_bigrams))\
-                        .reduceByKey(lambda a, b: a+b)
+                        .reduceByKey(lambda a, b: a+b) \
+                        .filter(lambda line: line[1] > SUPPORT_THRESHOLD)
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     trigrams.saveAsTextFile("{0}/{1}".format(sys.argv[3], format_time))
