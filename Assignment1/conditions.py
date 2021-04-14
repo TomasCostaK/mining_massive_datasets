@@ -42,20 +42,21 @@ def build_trigram(basket, filtered_diseases, filtered_bigrams):
                 list_of_trigrams.append((d1 + "," + d2 + "," + d3, 1))
     return list_of_trigrams            
 
-def get_support(disease, confidence_rdd):
+def get_support(disease, confidence_df):
     x = disease.rfind(",")
     key = disease[:x]
-    return confidence_rdd.filter(lambda line: line[0] == key).values().collect()[0]
+    return confidence_df.filter(confidence_df.Disease == key).collect()[0].Count
 
-def get_probability(disease, baskets_rdd):
+def get_probability(disease, baskets_df):
+    from pyspark.sql.functions import array_contains
     x = disease.rfind(",")
     key = disease[x+1:]
-    return baskets_rdd.filter(lambda line: key in set(line[1])).count()/baskets_rdd.count()
+    return baskets_df.filter(array_contains(baskets_df.DeseasesList, key)).count()/baskets_df.count()
 
-def get_std_lift(disease, dlift, baskets_rdd, diseases_rdd):
-    p_group = get_support(disease, diseases_rdd)
-    p_d = get_probability(disease, baskets_rdd)
-    max_val = max(p_group + p_d - 1, 1/baskets_rdd.count())
+def get_std_lift(disease, dlift, baskets_df, diseases_df):
+    p_group = get_support(disease, diseases_df)
+    p_d = get_probability(disease, baskets_df)
+    max_val = max(p_group + p_d - 1, 1/baskets_df.count())
     numerator = dlift - max_val/(p_group*p_d)
     denominator = 1/(p_group*p_d) - max_val/(p_group*p_d)
     return numerator/denominator
@@ -71,40 +72,45 @@ if __name__ == "__main__":
     # Starting context and opening file in command line
     sc = SparkContext(appName="Assignment1")
     spark = SparkSession(sc)
+    sc.setLogLevel("ERROR")
     textfile = sc.textFile(sys.argv[2])
     
     # Mapping patient as bucket to several diseases
     baskets = textfile.map(lambda line: line.split(",")) \
-                        .map(lambda pair: (pair[2],pair[4])) \
-                        .groupByKey()
+                        .map(lambda pair: (pair[2],[pair[4]])) \
+                        .reduceByKey(lambda a,b: a+b)
+
+    baskets_df = baskets.toDF(["User", "DeseasesList"])
 
     diseases_support = baskets.flatMap(lambda line: [(code, 1) for code in line[1]]) \
-                                .reduceByKey(lambda a, b: a+b)
+                                .reduceByKey(lambda a, b: a+b).filter(lambda line: line[1] > SUPPORT_THRESHOLD)
+
+    diseases_support_df = diseases_support.toDF(["Disease", "Count"])
     
-    filtered_diseases = diseases_support.filter(lambda line: line[1] > SUPPORT_THRESHOLD)\
-                                .map(lambda line: line[0]).collect()
+    filtered_diseases = diseases_support.map(lambda line: line[0]).collect()
 
     bigrams_support = baskets.flatMap(lambda line: build_bigram(line, filtered_diseases))\
-                    .reduceByKey(lambda a, b: a+b)
-
-    bigrams = bigrams_support.filter(lambda line: line[1] > SUPPORT_THRESHOLD)
+                    .reduceByKey(lambda a, b: a+b)\
+                    .filter(lambda line: line[1] > SUPPORT_THRESHOLD)
 
     # Results formatting
     if k == 2:
         association_rules = {key:[value] for key, value in bigrams_support.collect()}
+        print(len(association_rules))
 
         for key in association_rules:
             #Confidence level
-            association_rules[key][0] /= get_support(key, diseases_support)
+            association_rules[key][0] /= get_support(key, diseases_support_df)
             
             #Interest level
-            association_rules[key].append(association_rules[key][0] - get_probability(key, baskets))
+            association_rules[key].append(association_rules[key][0] - get_probability(key, baskets_df))
 
             #Lift
-            association_rules[key].append(association_rules[key][0]/get_probability(key, baskets))
+            association_rules[key].append(association_rules[key][0]/get_probability(key, baskets_df))
 
             #Std lift
-            association_rules[key].append(get_std_lift(key, association_rules[key][2], baskets, diseases_support))
+            association_rules[key].append(get_std_lift(key, association_rules[key][2], baskets_df, diseases_support_df))
+            print(key)
         
         association_rules = association_rules.parallelize().filter(lambda line: line[4] > STD_LIFT_THRESHOLD)\
                                         .sortBy(lambda line: line[4])\
