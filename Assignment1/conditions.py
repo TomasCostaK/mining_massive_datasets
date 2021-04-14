@@ -1,13 +1,14 @@
-from pyspark import SparkContext
+from pyspark import SparkContext, StorageLevel
 from pyspark.sql import SparkSession
 from datetime import datetime
+from time import time
 import re
 import logging
 import sys
 import collections
 
 # Este support deve ser 1000, mas
-SUPPORT_THRESHOLD = 6
+SUPPORT_THRESHOLD = 1000
 
 STD_LIFT_THRESHOLD = 0.2
 
@@ -53,12 +54,10 @@ def get_probability(disease, baskets_df):
     key = disease[x+1:]
     return baskets_df.filter(array_contains(baskets_df.DeseasesList, key)).count()/baskets_df.count()
 
-def get_std_lift(disease, dlift, baskets_df, diseases_df):
-    p_group = get_support(disease, diseases_df)
-    p_d = get_probability(disease, baskets_df)
-    max_val = max(p_group + p_d - 1, 1/baskets_df.count())
-    numerator = dlift - max_val/(p_group*p_d)
-    denominator = 1/(p_group*p_d) - max_val/(p_group*p_d)
+def get_std_lift(dsupp, dprob, dlift, basketscount):
+    max_val = max(dsupp + dprob - 1, 1/basketscount)
+    numerator = dlift - max_val/(dsupp*dprob)
+    denominator = 1/(dsupp*dprob) - max_val/(dsupp*dprob)
     return numerator/denominator
 
 if __name__ == "__main__":
@@ -80,12 +79,12 @@ if __name__ == "__main__":
                         .map(lambda pair: (pair[2],[pair[4]])) \
                         .reduceByKey(lambda a,b: a+b)
 
-    baskets_df = baskets.toDF(["User", "DeseasesList"])
+    baskets_df = baskets.toDF(["User", "DeseasesList"]).cache().persist(StorageLevel.MEMORY_ONLY)
 
     diseases_support = baskets.flatMap(lambda line: [(code, 1) for code in line[1]]) \
                                 .reduceByKey(lambda a, b: a+b).filter(lambda line: line[1] > SUPPORT_THRESHOLD)
 
-    diseases_support_df = diseases_support.toDF(["Disease", "Count"])
+    diseases_support_df = diseases_support.toDF(["Disease", "Count"]).cache().persist(StorageLevel.MEMORY_ONLY)
     
     filtered_diseases = diseases_support.map(lambda line: line[0]).collect()
 
@@ -96,26 +95,29 @@ if __name__ == "__main__":
     # Results formatting
     if k == 2:
         association_rules = {key:[value] for key, value in bigrams_support.collect()}
+        list_assoc_rules = []
         print(len(association_rules))
 
         for key in association_rules:
             #Confidence level
-            association_rules[key][0] /= get_support(key, diseases_support_df)
-            
+            supp = get_support(key, diseases_support_df)
+            prob = get_probability(key, baskets_df)
+            association_rules[key][0] /= supp
             #Interest level
-            association_rules[key].append(association_rules[key][0] - get_probability(key, baskets_df))
-
+            association_rules[key].append(association_rules[key][0] - prob)
             #Lift
-            association_rules[key].append(association_rules[key][0]/get_probability(key, baskets_df))
-
+            association_rules[key].append(association_rules[key][0]/prob)
             #Std lift
-            association_rules[key].append(get_std_lift(key, association_rules[key][2], baskets_df, diseases_support_df))
-            print(key)
+            association_rules[key].append(get_std_lift(supp, prob, association_rules[key][2], baskets_df.count()))
+            list_assoc_rules.append([key] + association_rules[key])
         
-        association_rules = association_rules.parallelize().filter(lambda line: line[4] > STD_LIFT_THRESHOLD)\
+        association_rules = sc.parallelize(list_assoc_rules)
+        association_rules = association_rules.filter(lambda line: line[4] > STD_LIFT_THRESHOLD)\
                                         .sortBy(lambda line: line[4])\
                                         .toDF(["Pair", "Confidence", "Interest", "Lift", "Standard Lift"])
-        association_rules.write.format("csv").save("{0}/{1}".format(sys.argv[3], "Association_Rules.csv"))
+
+        format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        association_rules.write.format("csv").save("{0}/Association Rules {1}".format(sys.argv[3], format_time))
         sc.stop()
         exit(0)
         
