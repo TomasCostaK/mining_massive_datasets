@@ -47,7 +47,7 @@ def minhash(document, k=100):
 def hash_lsh(band): 
     h1_array = []
     for value in band:
-        h1_array.append((421*value + 16) % LARGE_PRIME)
+        h1_array.append((421*value + 16) % 1013)
     return min(h1_array)
 
 # LSH, receives signature_matrix, devolves candidate pairs
@@ -80,13 +80,21 @@ def test_lsh(signature_matrix, r=5, b=20):
     # This returns candidate_pairs
     return candidate_pairs
 
-
 # Given a pair, return its similarity, calculated with 1-jaccard distance
 def similarity(sig1, sig2): 
     intersection = len(list(set(sig1).intersection(sig2)))
     union = (len(sig1) + len(sig2)) - intersection
     jacc = float(intersection) / union
     return jacc
+
+def return_similar(target_movie, movies):
+    similar_movies = []
+    for movie in movies:
+        if (target_movie == movie[0]) and movie[2]>0.8 and movie[2]<0.98:
+            similar_movies.append(movie[0])
+        if (target_movie == movie[1]) and movie[2]>0.8 and movie[2]<0.98:
+            similar_movies.append(movie[1])
+    return similar_movies
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
@@ -109,9 +117,16 @@ if __name__ == "__main__":
     signatures_matrix = { doc:buckets for doc,buckets in signatures.collect() }
 
     similar_pairs = test_lsh(signatures_matrix, r, b)
-    similar_pairs_rdd = sc.parallelize(similar_pairs).filter(lambda line: line[2]>0.8)
-    print(similar_pairs_rdd.take(10))
+    similar_pairs_rdd = sc.parallelize(similar_pairs)
+    count1 = similar_pairs_rdd.count()
+        
+    filtered_pairs= similar_pairs_rdd.filter(lambda line: line[2]>0.8)
+    count2 = filtered_pairs.count()
 
+    filtered_pairs2= similar_pairs_rdd.filter(lambda line: line[2]<0.4)
+    count3 = filtered_pairs2.count()
+    print("pairs: %d, filtered: %d, count3: %d" % (count1, count2, count3))
+    print("Testing func: ", return_similar('23890098',similar_pairs))
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     similar_pairs_rdd.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
