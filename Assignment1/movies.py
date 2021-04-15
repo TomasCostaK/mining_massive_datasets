@@ -67,30 +67,52 @@ def lsh(documents, r=5, b=20):
 
 # Given a list of documents in the same bucket, yield pairwise tuples
 def evaluate_candidates(documents):
-    for i in range(len(documents[1])):
-        for j in range(i+1, len(documents[1])):
-            yield (documents[1][i], documents[1][j])
+    docs = list(documents[1])
+    candidates = set()
+    for i in range(len(docs)):
+        for j in range(i+1, len(docs)):
+            if docs[i] != docs[j]:
+                candidates.add((docs[i], docs[j]))
+    return candidates
 
 # Given a pair, return its similarity, calculated with 1-jaccard distance
-def similarity(pair):
-    return
+def similarity(pairs):
+    for pair in pairs:
+        print("pair: ", pair)
+    return pairs
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 5:
         exit(-1)
+
+    try:
+        r = int(sys.argv[1])
+        b = int(sys.argv[2])
+    except:
+        print("Usage: movies.py <int:rows> <int:bands>")
+
     sc = SparkContext(appName="MovieRecommendation")
 
-    textfile = sc.textFile(sys.argv[1])
-    occurences = textfile.map(lambda line: re.split('\t', line.lower())) \
+    # Initial pipeline of shingling, minhashing and then performing LSH
+    textfile = sc.textFile(sys.argv[3])
+    signatures = textfile.map(lambda line: re.split('\t', line.lower())) \
                             .map(shingling) \
-                            .map(minhash) \
-                            .map(lsh)
+                            .map(minhash)
     
-    print("Yo we got here")
-    candidate_pairs = occurences.collect()
+    lsh = signatures.map(lambda j: lsh(j, r, b))
     
-    print("Took a lotta time")
-    print(candidate_pairs[0:10])
+    # This way we will have Buckets - > list of movies that hit that bucket
+    candidate_pairs = lsh.flatMap(lambda line: [(code, line[0]) for code in line[1]]) \
+                                .groupByKey() \
+
+    print(candidate_pairs.take(10))
+
+    # Since we now have the candidate pairs, which only appear in similar buckets, we will perform pairwise comparisons with their respective signature matrix 
+    # filter to remove all empty tuples and duplicates 
+    similar_pairs = candidate_pairs.map(evaluate_candidates) \
+                                    .filter(lambda l: len(l)>0) \
+                                    .map(similarity)
+    
     """
     min1 = minhash(['joao ','joana','robot','cao q'])
     min2 = minhash(['joana','raqet','morde'])
@@ -106,5 +128,5 @@ if __name__ == "__main__":
     """
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    occurences.saveAsTextFile("{0}/{1}".format(sys.argv[2], format_time))
+    similar_pairs.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
     sc.stop()
