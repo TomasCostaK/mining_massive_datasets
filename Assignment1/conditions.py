@@ -8,7 +8,7 @@ import sys
 import collections
 
 # Este support deve ser 1000, mas
-SUPPORT_THRESHOLD = 1000
+SUPPORT_THRESHOLD = 6
 
 STD_LIFT_THRESHOLD = 0.2
 
@@ -113,20 +113,55 @@ if __name__ == "__main__":
         
         association_rules = sc.parallelize(list_assoc_rules)
         association_rules = association_rules.filter(lambda line: line[4] > STD_LIFT_THRESHOLD)\
-                                        .sortBy(lambda line: line[4])\
-                                        .toDF(["Pair", "Confidence", "Interest", "Lift", "Standard Lift"])
+                                        .sortBy(lambda line: line[4])
+
+        bigrams_support_top10 = bigrams_support.sortBy(lambda line: line[1]).take(10)
+
+        with open("{0}/Top 10 Bigrams.csv".format(sys.argv[3]), "w") as filewrite:
+            filewrite.write("\n".join([b[0] for b in bigrams_support_top10]))
 
         format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        association_rules.write.format("csv").save("{0}/Association Rules {1}".format(sys.argv[3], format_time))
+        association_rules.saveAsTextFile("{0}/Association Rules {1}".format(sys.argv[3], format_time))
         sc.stop()
         exit(0)
         
-    filtered_bigrams = bigrams.map(lambda line: line[0]).collect()
+    filtered_bigrams = bigrams_support.map(lambda line: line[0]).collect()
 
-    trigrams = baskets.flatMap(lambda line: build_trigram(line, filtered_diseases, filtered_bigrams))\
+    trigrams_support = baskets.flatMap(lambda line: build_trigram(line, filtered_diseases, filtered_bigrams))\
                         .reduceByKey(lambda a, b: a+b) \
                         .filter(lambda line: line[1] > SUPPORT_THRESHOLD)
+    
+    bigrams_support_df = bigrams_support.toDF(["Disease", "Count"]).cache().persist(StorageLevel.MEMORY_ONLY)
+
+    association_rules = {key:[value] for key, value in trigrams_support.collect()}
+    list_assoc_rules = []
+    print(len(association_rules))
+
+    for key in association_rules:
+        #Confidence level
+        supp = get_support(key, bigrams_support_df)
+        prob = get_probability(key, baskets_df)
+        association_rules[key][0] /= supp
+        #Interest level
+        association_rules[key].append(association_rules[key][0] - prob)
+        #Lift
+        association_rules[key].append(association_rules[key][0]/prob)
+        #Std lift
+        association_rules[key].append(get_std_lift(supp, prob, association_rules[key][2], baskets_df.count()))
+        list_assoc_rules.append([key] + association_rules[key])
+        print(key)
+    
+    association_rules = sc.parallelize(list_assoc_rules)
+    association_rules = association_rules.filter(lambda line: line[4] > STD_LIFT_THRESHOLD)\
+                                    .sortBy(lambda line: line[4])
+
+    trigrams_support_top10 = trigrams_support.sortBy(lambda line: line[1]).take(10)
+
+    print(trigrams_support_top10)
+
+    with open("{0}/Top 10 Trigrams.csv".format(sys.argv[3]), "w") as filewrite:
+        filewrite.write("\n".join([t[0] for t in trigrams_support_top10]))
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    trigrams.saveAsTextFile("{0}/{1}".format(sys.argv[3], format_time))
+    association_rules.saveAsTextFile("{0}/Association Rules {1}".format(sys.argv[3], format_time))
     sc.stop()
