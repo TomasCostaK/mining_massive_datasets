@@ -4,27 +4,23 @@ import operator
 import hashlib
 import re
 import sys
+import random
 
 # Picking the biggest prime that coems after N shingles (used function to calculate for the given dataset) 
 # https://www.calculatorsoup.com/calculators/math/prime-number-calculator.php
 LARGE_PRIME = 75874811
+RANDOM_ARRAY = [(random.randint(0,500), random.randint(0,500)) for i in range(0,100)]
 
 # Hashing of the string into an int, so we maintain order in shingles
 def str_to_hashint(string):
     return abs(hash(string)) % (10 ** 8)
 
 # Definition of hash functions, a and b are random in both functions
-def h1(x): 
+def h1(x,a,b): 
     h1_array = []
     for value in x:
-        h1_array.append((521*str_to_hashint(value)) % LARGE_PRIME)
+        h1_array.append((a*str_to_hashint(value) + b) % LARGE_PRIME)
     return min(h1_array)
-
-def h2(x):
-    h2_array = []
-    for value in x:
-        h2_array.append((225*str_to_hashint(value )+ 623) % LARGE_PRIME)
-    return min(h2_array)
 
 # Turn document plot into set of shingles
 def shingling(document,k=9):
@@ -42,7 +38,8 @@ def minhash(document, k=100):
     x = document[1]
     signature_matrix = []
     for i in range(0,k):
-        h = h1(x) + i * h2(x)
+        a,b = RANDOM_ARRAY[i]
+        h = h1(x,a,b)
         signature_matrix.append(h)
     return document[0],signature_matrix
 
@@ -65,21 +62,31 @@ def lsh(documents, r=5, b=20):
 
     return documents[0],buckets
 
-# Given a list of documents in the same bucket, yield pairwise tuples
-def evaluate_candidates(documents):
-    docs = list(documents[1])
-    candidates = set()
-    for i in range(len(docs)):
-        for j in range(i+1, len(docs)):
-            if docs[i] != docs[j]:
-                candidates.add((docs[i], docs[j]))
-    return candidates
+def test_lsh(signature_matrix, r=5, b=20):
+    buckets = {}
+    candidate_pairs = []
+    # iterate over each column (movie) and calculate the hash based on a given band portion
+    # This band portion is given by the rows in each band
+    for signature in signature_matrix.items():
+        doc, bucket = lsh(signature, r, b)
+        for doc2, bucket_list in buckets.items():
+            for i in range(b):
+                if bucket_list[i] == bucket[i]: # This means its a candidate pair
+                    similar_pair = similarity(signature[1], signature_matrix[doc2])
+                    candidate_pairs.append((doc,doc2,similar_pair))
+                    break  
+        buckets[doc] = bucket
+
+    # This returns candidate_pairs
+    return candidate_pairs
+
 
 # Given a pair, return its similarity, calculated with 1-jaccard distance
-def similarity(pairs):
-    for pair in pairs:
-        print("pair: ", pair)
-    return pairs
+def similarity(sig1, sig2): 
+    intersection = len(list(set(sig1).intersection(sig2)))
+    union = (len(sig1) + len(sig2)) - intersection
+    jacc = float(intersection) / union
+    return jacc
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
@@ -99,34 +106,13 @@ if __name__ == "__main__":
                             .map(shingling) \
                             .map(minhash)
     
-    lsh = signatures.map(lambda j: lsh(j, r, b))
-    
-    # This way we will have Buckets - > list of movies that hit that bucket
-    candidate_pairs = lsh.flatMap(lambda line: [(code, line[0]) for code in line[1]]) \
-                                .groupByKey() \
+    signatures_matrix = { doc:buckets for doc,buckets in signatures.collect() }
 
-    print(candidate_pairs.take(10))
+    similar_pairs = test_lsh(signatures_matrix, r, b)
+    similar_pairs_rdd = sc.parallelize(similar_pairs).filter(lambda line: line[2]>0.8)
+    print(similar_pairs_rdd.take(10))
 
-    # Since we now have the candidate pairs, which only appear in similar buckets, we will perform pairwise comparisons with their respective signature matrix 
-    # filter to remove all empty tuples and duplicates 
-    similar_pairs = candidate_pairs.map(evaluate_candidates) \
-                                    .filter(lambda l: len(l)>0) \
-                                    .map(similarity)
-    
-    """
-    min1 = minhash(['joao ','joana','robot','cao q'])
-    min2 = minhash(['joana','raqet','morde'])
-    print("Minhash1: ", min1)
-    print("Minhash2: ", min2)
-
-    intersection = len(list(set(min1).intersection(min2)))
-    union = (len(min1) + len(min2)) - intersection
-
-    jacc = float(intersection) / union
-
-    print("Similarity: ",jacc)
-    """
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    similar_pairs.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
+    similar_pairs_rdd.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
     sc.stop()
