@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from pyspark import SparkContext
 from datetime import datetime
 import operator
@@ -65,6 +67,7 @@ def lsh(documents, r=5, b=20):
 
     return documents[0],buckets
 
+# This pipeline evaluates candidate pairs, and returns them
 def test_lsh(signature_matrix, r=5, b=20):
     buckets = {}
     candidate_pairs = []
@@ -92,19 +95,32 @@ def similarity(sig1, sig2):
 
 def calculate_fp_rate(matrix, similar_pairs):
     fp = 0
-    fn = 0
     for pair in similar_pairs:
         doc1, doc2, sim1 = pair
         shingles1 = matrix[doc1]
         shingles2 = matrix[doc2]
         sm = similarity(shingles1,shingles2)
-        if sim1 > 0.8:
-            print("Doc1: %s Doc2: %s Sim1: %f, CalcSim: %f" % (doc1, doc2, sim1, sm))
 
         if sim1 > 0.8 and sm < 0.8: fp+=1
-        if sim1 < 0.8 and sm > 0.8: fn+=1
 
-    return (fp/len(similar_pairs), fn/len(similar_pairs))
+    return (fp/len(similar_pairs))
+
+def calculate_fn_rate(matrix, similar_pairs):
+    fn = 0
+    total_pairs = 0
+    doc_pairs = []
+    docs = list(matrix.keys())
+    for id1 in range(len(docs)):
+        for id2 in range(id1+1, len(docs)):
+            sig1 = matrix[docs[id1]]
+            sig2 = matrix[docs[id2]]
+            similarity_sig = similarity(sig1,sig2)
+            total_pairs += 1
+            if similarity_sig > 0.8: 
+                doc_pairs.append((docs[id1],docs[id2]))
+    
+    false_negatives = len(set(similar_pairs) - set(doc_pairs))
+    return (fn/total_pairs)
 
 
 # This function evaluates
@@ -128,7 +144,7 @@ if __name__ == "__main__":
         print("Usage: movies.py <int:rows> <int:bands>")
 
     # Usando esta funçao: https://www.wolframalpha.com/input/?i=%281-0.8%5Ex%29%5E%28100%2Fx%29
-    # Chegamos à conclusao que a melhor escolha para o b=5 e r=20, dado que b x r = 100
+    # Chegamos à conclusao que a melhor escolha (tendo em conta que b x r ~= 100) é o b=20 e r=5
 
     sc = SparkContext(appName="MovieRecommendation")
     log4jLogger = sc._jvm.org.apache.log4j
@@ -139,14 +155,15 @@ if __name__ == "__main__":
     # Initial pipeline of shingling, minhashing and then performing LSH
     textfile = sc.textFile(sys.argv[3])
     signatures = textfile.map(lambda line: re.split('\t', line.lower())) \
-                            .map(shingling)
+                            .map(shingling) \
+                            .map(minhash)
 
-    min_hashes = signatures.map(minhash)
     time_end = time.time()
     LOGGER.info("Time Elapsed for Signatures: %fs\n" % (time_end-time_start))
 
+    # Creating the signatures "matrix", so we can evaluate it on the LSH Function
     time_start = time.time()
-    signatures_matrix = { doc:buckets for doc,buckets in min_hashes.collect() }
+    signatures_matrix = { doc:buckets for doc,buckets in signatures.collect() }
     time_end = time.time()
     LOGGER.info("Time Elapsed for Creating Matrix: %fs\n" % (time_end-time_start))
 
@@ -163,8 +180,10 @@ if __name__ == "__main__":
     similar = return_similar('23890098', similar_pairs)
     LOGGER.info("Movies Similar to %s found in %fs: %s\n" % ('23890098', time.time()- time_start, similar))
 
-    fp_rate, fn_rate = calculate_fp_rate(signatures_matrix,similar_pairs)
-    LOGGER.info("\tFP Rate: %f \n\tFN Rate: %f\n" % (fp_rate, fn_rate))
+    # This should only be calculated with a small example. Since we perform pairwise comparison between all movies
+    #fp_rate = calculate_fp_rate(signatures_matrix, similar_pairs)
+    #fn_rate = calculate_fn_rate(signatures_matrix, similar_pairs)
+    #LOGGER.info("\tFP Rate: %f \n\tFN Rate: %f\n" % (fp_rate, fn_rate))
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     similar_pairs_rdd.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
