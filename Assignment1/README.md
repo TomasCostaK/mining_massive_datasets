@@ -7,7 +7,7 @@ Two main goals:
 ## Authors
 
 [Tomás Costa](https://github.com/TomasCostaK) - 89016  
-[Pedro Oliveira](https://github.com/PedroOliveiraPT) -   
+[Pedro Oliveira](https://github.com/PedroOliveiraPT) - 89156   
 
 ## How to Run
 k can be equals to 2 or 3  
