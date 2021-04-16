@@ -2,6 +2,7 @@ from pyspark import SparkContext
 from datetime import datetime
 import operator
 import hashlib
+import time
 import re
 import sys
 import random
@@ -87,6 +88,24 @@ def similarity(sig1, sig2):
     jacc = float(intersection) / union
     return jacc
 
+def calculate_fp_rate(matrix, similar_pairs):
+    fp = 0
+    fn = 0
+    for pair in similar_pairs:
+        doc1, doc2, sim1 = pair
+        shingles1 = matrix[doc1]
+        shingles2 = matrix[doc2]
+        sm = similarity(shingles1,shingles2)
+        if sim1 > 0.8:
+            print("Doc1: %s Doc2: %s Sim1: %f, CalcSim: %f" % (doc1, doc2, sim1, sm))
+
+        if sim1 > 0.8 and sm < 0.8: fp+=1
+        if sim1 < 0.8 and sm > 0.8: fn+=1
+
+    return (fp/len(similar_pairs), fn/len(similar_pairs))
+
+
+# This function evaluates
 def return_similar(target_movie, movies):
     similar_movies = []
     for movie in movies:
@@ -107,26 +126,40 @@ if __name__ == "__main__":
         print("Usage: movies.py <int:rows> <int:bands>")
 
     sc = SparkContext(appName="MovieRecommendation")
+    log4jLogger = sc._jvm.org.apache.log4j
+    LOGGER = log4jLogger.LogManager.getLogger("RESULTS")
+    LOGGER.info("pyspark script logger initialized")
 
+    time_start = time.time()
     # Initial pipeline of shingling, minhashing and then performing LSH
     textfile = sc.textFile(sys.argv[3])
     signatures = textfile.map(lambda line: re.split('\t', line.lower())) \
-                            .map(shingling) \
-                            .map(minhash)
-    
-    signatures_matrix = { doc:buckets for doc,buckets in signatures.collect() }
+                            .map(shingling)
 
+    min_hashes = signatures.map(minhash)
+    time_end = time.time()
+    LOGGER.info("Time Elapsed for Signatures: %fs\n" % (time_end-time_start))
+
+    time_start = time.time()
+    signatures_matrix = { doc:buckets for doc,buckets in min_hashes.collect() }
+    time_end = time.time()
+    LOGGER.info("Time Elapsed for Creating Matrix: %fs\n" % (time_end-time_start))
+
+    time_start = time.time()
     similar_pairs = test_lsh(signatures_matrix, r, b)
-    similar_pairs_rdd = sc.parallelize(similar_pairs)
-    count1 = similar_pairs_rdd.count()
-        
-    filtered_pairs= similar_pairs_rdd.filter(lambda line: line[2]>0.8)
-    count2 = filtered_pairs.count()
+    similar_pairs_rdd = sc.parallelize(similar_pairs) \
+                            .sortBy(lambda line: -line[2])
+                            
+    time_end = time.time()
+    LOGGER.info("Time Elapsed for Similar Pairs: %fs\n" % (time_end-time_start))
 
-    filtered_pairs2= similar_pairs_rdd.filter(lambda line: line[2]<0.4)
-    count3 = filtered_pairs2.count()
-    print("pairs: %d, filtered: %d, count3: %d" % (count1, count2, count3))
-    print("Testing func: ", return_similar('23890098',similar_pairs))
+    # Function calling Ex 2.2, returning similar movies but not copies to a given movie
+    time_start = time.time()
+    similar = return_similar('23890098', similar_pairs)
+    LOGGER.info("Movies Similar to %s found in %fs: %s\n" % ('23890098', time.time()- time_start, similar))
+
+    fp_rate, fn_rate = calculate_fp_rate(signatures_matrix,similar_pairs)
+    LOGGER.info("\tFP Rate: %f \n\tFN Rate: %f\n" % (fp_rate, fn_rate))
 
     format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     similar_pairs_rdd.saveAsTextFile("{0}/{1}".format(sys.argv[4], format_time))
