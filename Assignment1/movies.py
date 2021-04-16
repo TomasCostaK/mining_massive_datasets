@@ -57,8 +57,10 @@ def lsh(documents, r=5, b=20):
     signature = documents[1]
     # iterate over each column (movie) and calculate the hash based on a given band portion
     # This band portion is given by the rows in each band
-    for band in range(0,len(signature),r):
-        bucket = hash_lsh(signature[band:band+r])
+    for idx in range(0,b):
+        if idx*r > len(signature): break 
+        max_id = min(idx * r + r, len(signature))
+        bucket = hash_lsh(signature[idx*r:max_id])
         buckets.append(bucket)
 
     return documents[0],buckets
@@ -71,7 +73,7 @@ def test_lsh(signature_matrix, r=5, b=20):
     for signature in signature_matrix.items():
         doc, bucket = lsh(signature, r, b)
         for doc2, bucket_list in buckets.items():
-            for i in range(b):
+            for i in range(len(bucket)):
                 if bucket_list[i] == bucket[i]: # This means its a candidate pair
                     similar_pair = similarity(signature[1], signature_matrix[doc2])
                     candidate_pairs.append((doc,doc2,similar_pair))
@@ -124,6 +126,9 @@ if __name__ == "__main__":
         b = int(sys.argv[2])
     except:
         print("Usage: movies.py <int:rows> <int:bands>")
+
+    # Usando esta funçao: https://www.wolframalpha.com/input/?i=%281-0.8%5Ex%29%5E%28100%2Fx%29
+    # Chegamos à conclusao que a melhor escolha para o b=5 e r=20, dado que b x r = 100
 
     sc = SparkContext(appName="MovieRecommendation")
     log4jLogger = sc._jvm.org.apache.log4j
