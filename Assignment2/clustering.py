@@ -7,65 +7,6 @@ import logging
 import sys
 import collections
 
-# Este support deve ser 1000, mas
-SUPPORT_THRESHOLD = 6
-
-STD_LIFT_THRESHOLD = 0.2
-
-def build_bigram(basket, filtered_diseases):
-    """ Function to build a bigram based on the basket and the diseases with more than the supported threshold
-    """
-    diseases = list(basket[1])
-    list_of_bigrams = []
-    for i in range(len(diseases)):
-        d1 = diseases[i]
-        if d1 not in filtered_diseases: continue
-        for j in range(i+1, len(diseases)):
-            d2 = diseases[j]
-            if d2 not in filtered_diseases: continue
-            list_of_bigrams.append((d1 + "," + d2, 1))
-    return list_of_bigrams
-
-
-
-def build_trigram(basket, filtered_diseases, filtered_bigrams):
-    """ Function to build a trigram based on the basket and the diseases with more than the supported threshold
-    """
-    diseases = list(basket[1])
-    list_of_trigrams = []
-    for i in range(len(diseases)):
-        d1 = diseases[i]
-        if d1 not in filtered_diseases: continue
-        for j in range(i+1, len(diseases)):
-            d2 = diseases[j]
-            if d2 not in filtered_diseases: continue
-            if d1 + "," + d2 not in filtered_bigrams: continue
-            for k in range(j+1, len(diseases)):
-                d3 = diseases[k]
-                if d3 not in filtered_diseases: continue
-                if d1 + "," + d3 not in filtered_bigrams or d2 + "," + d3 not in filtered_bigrams: continue
-                list_of_trigrams.append((d1 + "," + d2 + "," + d3, 1))
-    return list_of_trigrams            
-
-def get_support(disease, confidence_df):
-    """Function to get the number of occurences the group I occurs in the dataset"""
-    x = disease.rfind(",")
-    key = disease[:x]
-    return confidence_df.filter(confidence_df.Disease == key).collect()[0].Count
-
-def get_probability(disease, baskets_df):
-    """Function to get the probability of a disease j in the baskets"""
-    from pyspark.sql.functions import array_contains
-    x = disease.rfind(",")
-    key = disease[x+1:]
-    return baskets_df.filter(array_contains(baskets_df.DeseasesList, key)).count()/baskets_df.count()
-
-def get_std_lift(dsupp, dprob, dlift, basketscount):
-    """Function to get calculate the standard lift based on the support and probability calculated previously"""
-    max_val = max(dsupp + dprob - 1, 1/basketscount)
-    numerator = dlift - max_val/(dsupp*dprob)
-    denominator = 1/(dsupp*dprob) - max_val/(dsupp*dprob)
-    return numerator/denominator
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
