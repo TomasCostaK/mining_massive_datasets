@@ -7,7 +7,7 @@ import logging
 import sys
 import collections
 import csv
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestCentroid
 import numpy as np
 
@@ -15,63 +15,42 @@ DATA_LOCATION = "../../fma_metadata/"
 TRACKS = DATA_LOCATION + "tracks.csv"
 FEATURES = DATA_LOCATION + "features.csv"
 
+NUMBER_OF_CLUSTERS = 11
+SAMPLE_SIZE = 2000
+
 if __name__ == "__main__":
     sc = SparkContext(appName="Assignment1")
     spark = SparkSession(sc)
     sc.setLogLevel("WARN")
 
-    textfile = sc.textFile(TRACKS)
-    data_small_ids = textfile.zipWithIndex().\
-                    filter(lambda x: x[1] > 2).\
-                    map(lambda x: x[0]).\
-                    mapPartitions(lambda x: csv.reader(x, delimiter=',', quotechar='"')).\
-                    filter(lambda x: len(x) == 53).\
-                    filter(lambda x: x[32] == 'small').\
-                    map(lambda x: x[0]).collect()
-    
-    data_small_ids = set(data_small_ids)
-    
-    data_small_features = sc.textFile(FEATURES).zipWithIndex().\
+    textfile = sc.textFile(FEATURES)
+
+    data_features = textfile.zipWithIndex().\
                     filter(lambda x: x[1] > 3).\
-                    map(lambda x: x[0].split(',')).\
-                    filter(lambda x: x[0] in data_small_ids)
+                    map(lambda x: x[0].split(','))
+    kmeans = KMeans(n_clusters=NUMBER_OF_CLUSTERS)
 
-    X = np.array(data_small_features.collect())
+    discard_set = []
+    compression_set = set()
+    retained_set = set()
 
-    print("Start training")
+    k_clusters = data_features.takeSample(False, NUMBER_OF_CLUSTERS)
+    data_features = data_features.filter(lambda x: x[0] not in [k[0] for k in k_clusters)
+    k_clusters = [k[1:] for k in k_clusters]
 
-    for i in range(8, 17):
-        node_per_label = {}
-        radius_per_label = {}
-        diameter_per_label = {}
-        clustering = AgglomerativeClustering(n_clusters=i, compute_distances=True).fit(X)
-        clf = NearestCentroid()
-        clf.fit(X, clustering.labels_)
+    while not data_features.empty():
+        data_sample = data_features.takeSample(False, SAMPLE_SIZE)
+        data_features = data_features.filter(lambda x: x[0] not in [k[0] for k in data_sample)
+        data_sample = np.array([k[1:] for k in data_sample]).astype(np.float)
         
-        for l in range(len(X)):
-            label = clustering.labels_[l]
-            if label not in node_per_label: 
-                node_per_label[label] = []
-                diameter_per_label[label] = 0
-                radius_per_label[label] = 0
-            node_per_label[label].append(X[l])
+        N=100
+        SUM = np.sum(data_sample, axis=0)
+        SUMSQ = np.sum(np.square(data_sample), axis=0)
 
-        # Calculate diameter
-        for label in node_per_label:
-            node_per_label[label] = np.array(node_per_label[label]).astype(np.float)
-            for n1 in range(len(node_per_label[label])):
-                for n2 in range(n1+1, len(node_per_label[label])):
-                    d = np.linalg.norm(node_per_label[label][n1] - node_per_label[label][n2])
-                    if d > diameter_per_label[label]: diameter_per_label[label] = d
+        cluster_size = 2*len(data_sample[0]) + 1
+        centroid = SUM/N
+        variance = SUMSQ/N - np.square(SUM/N)
+        std_deviation = np.sqrt(variance)
 
-        # Calculate radius
-        for label in node_per_label:
-            for n1 in node_per_label[label]:
-                r = np.linalg.norm(n1 - clf.centroids_[label])
-                if r > radius_per_label[label]: radius_per_label[label] = r
-        
-        print("For", i, "clusters:")
-        print("Diameters:", diameter_per_label)
-        print("Radius:", radius_per_label)
-        
+
     sc.stop()
