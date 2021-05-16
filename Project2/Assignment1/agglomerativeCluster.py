@@ -10,6 +10,7 @@ import csv
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.neighbors import NearestCentroid
 import numpy as np
+import json
 
 DATA_LOCATION = "../../fma_metadata/"
 TRACKS = DATA_LOCATION + "tracks.csv"
@@ -78,10 +79,19 @@ if __name__ == "__main__":
 
         density_per_label = {label: len(node_per_label[label])/(radius_per_label[label]**2) for label in node_per_label}
 
+        dc_results = [0] * i
+        for label in node_per_label:
+            dc_results[label] = [len(node_per_label[label]), np.sum(node_per_label[label], axis=0).tolist(), np.sum(np.square(node_per_label[label]), axis=0).tolist()  ]
+        
+        with open(f"results_{i}.json", "w") as r:
+            json.dump(dc_results, r)
+
         data_per_cluster[i] = [
             min(radius_per_label.values()), max(radius_per_label.values()), avg(radius_per_label.values()),
             min(diameter_per_label.values()), max(diameter_per_label.values()), avg(diameter_per_label.values()),
             min(density_per_label.values()), max(density_per_label.values()), avg(density_per_label.values())
         ]
-    print(data_per_cluster)
+
+    with open(f"results.json", "w") as r:
+        json.dump(data_per_cluster, r)
     sc.stop()
