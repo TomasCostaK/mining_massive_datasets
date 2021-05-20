@@ -34,6 +34,8 @@ if __name__ == "__main__":
                     map(lambda x: x[0]).collect()
     
     data_small_ids = set(data_small_ids)
+
+    features_to_remove = [ 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191]
     
     data_small_features = sc.textFile(FEATURES).zipWithIndex().\
                     filter(lambda x: x[1] > 3).\
@@ -42,6 +44,7 @@ if __name__ == "__main__":
                     map(lambda x: x[1:])
 
     X = np.array(data_small_features.collect())
+    X = np.delete(X, features_to_remove, 1)
 
     print("Start training")
 
