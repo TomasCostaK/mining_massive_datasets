@@ -4,6 +4,7 @@ from datetime import datetime
 from time import time
 import logging
 import collections
+import math
 import numpy as np
 import sys
 import os
@@ -70,16 +71,23 @@ def recommend_movies(users, matrix, target_movie, target_user):
     Matrix:  [4.0, 5.0, 5.0]
     Recommended rating for movie 1 by user 1 == 4.7
     """
-    print(most_similar)
     if user_flag == 1:
-        rec = float(sum([ sim*matrix[id2][int(target_user)-1] for id1, id2, sim in most_similar]) / sum([sim for id1, id2, sim in most_similar]))
-        print(rec)
-        return rec
+        return float(sum([ sim*matrix[id2][int(target_user)-1] for id1, id2, sim in most_similar]) / sum([sim for id1, id2, sim in most_similar]))
+
     return 
 
-def evaluate_model(data):
-    return
+def evaluate_model(data, users, matrix):
+    # evaluate one by one and check if the rating is equal to
+    ratings_list = []
+    rec_ratings_list = []
+    for line in data:
+        usr, movie_id, rating, unused = line
+        rec_rating = recommend_movies(users, matrix, movie_id, usr)
+        ratings_list.append(float(rating))
+        rec_ratings_list.append(rec_rating)
 
+    rmse = math.sqrt(sum([(rec_ratings_list[i]-ratings_list[i])**2 for i in range(len(ratings_list))])/sum([rec_ratings_list[i] for i in range(len(rec_ratings_list))]))
+    print("RMSE ==", rmse)
 if __name__ == "__main__":
     sc = SparkContext(appName="CF_Recommendation")
     spark = SparkSession(sc)
@@ -104,8 +112,7 @@ if __name__ == "__main__":
 
     movies_matrix = similar_pairs(ratings, num_users)
 
-    recommendations = recommend_movies(users, movies_matrix,1,1)
+    evaluate_model(ratings_data.take(100), users, movies_matrix)
+    #recommendations = recommend_movies(users, movies_matrix,1,1)
 
-    format_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    similar.saveAsTextFile("{0}/{1}".format(sys.argv[2], format_time))
     sc.stop()
