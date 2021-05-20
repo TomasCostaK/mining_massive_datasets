@@ -6,18 +6,16 @@ import re
 import logging
 import sys
 import collections
+import json
 import csv
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestCentroid
 import numpy as np
 
-DATA_LOCATION = "../../fma_metadata/"
-TRACKS = DATA_LOCATION + "tracks.csv"
-FEATURES = DATA_LOCATION + "features.csv"
 
-NUMBER_OF_CLUSTERS = 11
+NUMBER_OF_CLUSTERS = 9
 FIRST_DC = f"results_{NUMBER_OF_CLUSTERS}.json"
-SAMPLE_SIZE = 2000
+SAMPLE_SIZE = 10000
 
 def mahalanobis_distance(v1, v2, var_vector):
     return np.sqrt(np.sum(np.square((v1 - v2)/var_vector)))
@@ -27,6 +25,11 @@ if __name__ == "__main__":
     spark = SparkSession(sc)
     sc.setLogLevel("WARN")
 
+    DATA_LOCATION = sys.argv[1]
+
+    TRACKS = DATA_LOCATION + "tracks.csv"
+    FEATURES = DATA_LOCATION + "features.csv"
+    
     textfile = sc.textFile(TRACKS)
     data_small_ids = textfile.zipWithIndex().\
                     filter(lambda x: x[1] > 2).\
@@ -37,31 +40,41 @@ if __name__ == "__main__":
                     map(lambda x: x[0]).collect()
     
     data_small_ids = set(data_small_ids)
+
+    mask = [ 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191]
     
     data_features = sc.textFile(FEATURES).zipWithIndex().\
                     filter(lambda x: x[1] > 3).\
                     map(lambda x: x[0].split(',')).\
-                    filter(lambda x: x[0] not in data_small_ids).\
-                    map(lambda x: x[1:])
+                    filter(lambda x: x[0] not in data_small_ids)
     
     kmeans = KMeans(n_clusters=NUMBER_OF_CLUSTERS)
 
-    threshold = 2*np.sqrt(k_clusters.shape[1])
+    threshold = 2*np.sqrt(len(data_features.take(1)[0]))
 
     with open(FIRST_DC, "r") as r:
-        discard_set = json.load(FIRST_DC)
+        discard_set = json.load(r)
     
-    discard_set = np.array(discard_set).astype(np.float)
-    compression_set = np.array()
-    retained_set = np.array()
+    for ind in range(len(discard_set)):
+        discard_set[ind][1] = np.array(discard_set[ind][1]).astype(np.float)
+        discard_set[ind][2] = np.array(discard_set[ind][2]).astype(np.float)
+    compression_set = []
+    retained_set = []
 
-    cluster_points = k_clusters.copy()
+    iterations = 0
+    data_sample_id = set()
 
     while not data_features.isEmpty():
+        iterations += 1
+        print("Number of iterations", iterations, "\nMissing", data_features.count(), "docs")
+        data_features = data_features.filter(lambda x: x[0] not in data_sample_id)
         data_sample = data_features.takeSample(False, SAMPLE_SIZE)
-        data_features = data_features.filter(lambda x: x[0] not in [k[0] for k in data_sample])
-        data_sample = np.array([k[1:] for k in data_sample]).astype(np.float)
-        np.append(data_sample, retained_set, axis=0)
+        data_sample_id |= set([x[0] for x in data_sample])
+
+        data_sample = np.array([k[1:] for k in data_sample])
+
+        data_sample = np.delete(data_sample, mask, 1)
+        data_sample = np.array(data_sample.tolist() + retained_set)
 
         min_distance_per_sample = [(-1, -1) for i in range(len(data_sample))]
         points_to_remove = []
@@ -73,7 +86,7 @@ if __name__ == "__main__":
             std_deviation = np.sqrt(variance)
 
             for ind in range(len(data_sample)):
-                point = data_sample[ind]
+                point = data_sample[ind].astype(np.float)
                 md = mahalanobis_distance(point, centroid, std_deviation)
                 curr_min_dist, curr_min_ind = min_distance_per_sample[ind]
                 if (curr_min_dist < 0 or curr_min_dist > md) and md < threshold:
@@ -84,10 +97,10 @@ if __name__ == "__main__":
             curr_min_dist, curr_min_ind = min_distance_per_sample[ind]
             ds = discard_set[curr_min_ind]
             ds[0] += 1
-            ds[1] += data_sample[ind]
-            ds[2] += np.square(data_sample[ind])
+            ds[1] += data_sample[ind].astype(np.float)
+            ds[2] += np.square(data_sample[ind].astype(np.float))
         
-        data_sample = [data_sample[n] for n in range(len(data_sample)) if n not in points_to_remove]
+        data_sample = [data_sample[n].astype(np.float) for n in range(len(data_sample)) if n not in points_to_remove]
 
         new_cs = [[0, 0, 0] for i in range(NUMBER_OF_CLUSTERS)]
         kmeans.fit(data_sample)
@@ -111,7 +124,7 @@ if __name__ == "__main__":
                 cs[0] -= 1
                 cs[1] -= data_sample[ind]
                 cs[2] -= np.square(data_sample[ind])
-                np.append(retained_set, [data_sample[ind]], axis=0)
+                retained_set.append(data_sample[ind])
 
         # Join the newly formed CS to old CS if possible, if not it becomes a new cluster in CS
         # We consider it possible if the cluster is within MD range
@@ -123,7 +136,7 @@ if __name__ == "__main__":
                 old_std_dev = np.sqrt(old_variance)
 
                 new_centroid = new_cluster[1]/new_cluster[0]
-                md = mahalanobis_distance(data)
+                md = mahalanobis_distance(new_centroid, old_centroid, old_std_dev)
                 if md > threshold:
                     found_match = True
                     cs[0] += new_cluster[0]
@@ -131,7 +144,7 @@ if __name__ == "__main__":
                     cs[2] += new_cluster[2]
                     break
             if not found_match:
-                np.append(compression_set, [new_cluster], axis=0)
+                compression_set.append(new_cluster)
 
         # Now see if it's possible to join any CS to the DS
         min_distance_per_cluster = [(-1, -1) for i in range(len(compression_set))]
@@ -159,11 +172,9 @@ if __name__ == "__main__":
             ds[1] += compression_set[ind][1]
             ds[2] += compression_set[ind][2]
 
-        break
-
     #Finally get the new centroids from the CS and the RS and join them to the neares centroid in DS
     cs_centroids = [cs[1]/cs[0] for cs in compression_set]
-    np.append(retained_set, cs_centroids, axis=0)
+    retained_set += cs_centroids
 
     min_distance_per_point = [(-1, -1) for i in range(len(retained_set))]
     for i in range(NUMBER_OF_CLUSTERS):
@@ -186,5 +197,8 @@ if __name__ == "__main__":
         ds[0] += 1
         ds[1] += point
         ds[2] += np.square(point)
+
+    with open("bfr_results.json", "w") as r:
+        json.dump(discard_set, r)
 
     sc.stop()
