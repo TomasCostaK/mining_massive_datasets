@@ -62,6 +62,7 @@ def recommend_movies(users, matrix, target_movie, target_user):
                         most_similar.append((target_movie,second_movie,calculate_similarity(movie_vector, second_vector)))
                 
                 most_similar = sorted(most_similar, key=lambda x:x[2], reverse=True)[:NEIGHBOUR_SIZE]
+                break
     except:
         print("Error, recommendation not possible")
         sys.exit(1)
