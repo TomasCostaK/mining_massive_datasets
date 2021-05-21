@@ -1,7 +1,8 @@
 from pyspark import SparkContext, StorageLevel
 from pyspark.sql import SparkSession
 from datetime import datetime
-from time import time
+from sklearn.metrics import mean_squared_error
+import time
 import logging
 import collections
 import math
@@ -15,7 +16,8 @@ DATA_LOCATION = sys.argv[1] # this is the ratings csv
 RATINGS_LOCATION = DATA_LOCATION + "/ratings.csv"
 MOVIES_LOCATION = DATA_LOCATION + "/movies.csv"
 
-NEIGHBOUR_SIZE = 3
+NEIGHBOUR_SIZE = 4
+EVALUATION_SIZE = 1000
 
 def similar_pairs(movies_ratings, num_users):
     movies_matrix = {}
@@ -79,20 +81,27 @@ def recommend_movies(users, matrix, target_movie, target_user):
 
 def evaluate_model(data, users, matrix):
     # evaluate one by one and check if the rating is equal to
-    ratings_list = []
-    rec_ratings_list = []
+    targets = []
+    predictions = []
     for line in data:
         usr, movie_id, rating, unused = line
         rec_rating = recommend_movies(users, matrix, movie_id, usr)
-        ratings_list.append(float(rating))
-        rec_ratings_list.append(rec_rating)
+        targets.append(float(rating))
+        predictions.append(rec_rating)
 
-    rmse = math.sqrt(sum([(rec_ratings_list[i]-ratings_list[i])**2 for i in range(len(ratings_list))])/sum([rec_ratings_list[i] for i in range(len(rec_ratings_list))]))
-    print("RMSE ==", rmse)
+    #rmse = math.sqrt( sum([(predictions[i]-targets[i])**2 for i in range(len(targets))])/len(predictions) )
+    rmse = math.sqrt(mean_squared_error(targets, predictions)) 
+    precision = sum([1 for i in range(len(targets)) if (round(targets[i])==round(predictions[i]))]) / len(predictions)
+    print("\nMETRICS ANALYSIS:\nRMSE == %.2f" % (rmse))
+    print("Precision == ", precision)
+    return rmse, precision
+
 if __name__ == "__main__":
     sc = SparkContext(appName="CF_Recommendation")
     spark = SparkSession(sc)
     sc.setLogLevel("WARN")
+
+    tic = time.time()
 
     ratings_raw_data = sc.textFile(RATINGS_LOCATION)
     ratings_header = ratings_raw_data.take(1)[0]
@@ -113,7 +122,13 @@ if __name__ == "__main__":
 
     movies_matrix = similar_pairs(ratings, num_users)
 
-    evaluate_model(ratings_data.take(100), users, movies_matrix)
-    #recommendations = recommend_movies(users, movies_matrix,1,1)
+    rmse, precision =evaluate_model(ratings_data.take(EVALUATION_SIZE), users, movies_matrix)
+    eta = time.time()-tic
+    print("ETA: %.2f seconds" % (eta))
+
+    with open("results_"+str(EVALUATION_SIZE)+".txt",'w+') as f:
+        f.write("rmse = " + str(rmse))
+        f.write("\nprecision = " + str(precision))
+        f.write("\ntime spent = " + str(eta))
 
     sc.stop()
