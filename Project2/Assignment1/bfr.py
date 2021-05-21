@@ -18,7 +18,7 @@ FIRST_DC = f"results_{NUMBER_OF_CLUSTERS}.json"
 SAMPLE_SIZE = 10000
 
 def mahalanobis_distance(v1, v2, var_vector):
-    return np.sqrt(np.sum(np.square((v1 - v2)/var_vector)))
+    return np.linalg.norm(v1 - v2)
 
 if __name__ == "__main__":
     sc = SparkContext(appName="Assignment1")
@@ -191,12 +191,16 @@ if __name__ == "__main__":
                 min_distance_per_point[ind] = (md, i)
     
     for i in range(len(min_distance_per_point)):
-        point = cs_centroids[i]
+        point = retained_set[i]
         _, centroid = min_distance_per_point[i]
         ds = discard_set[centroid]
         ds[0] += 1
         ds[1] += point
         ds[2] += np.square(point)
+    
+    for i in range(NUMBER_OF_CLUSTERS):
+        discard_set[i][1] = discard_set[i][1].tolist()
+        discard_set[i][2] = discard_set[i][2].tolist()
 
     with open("bfr_results.json", "w") as r:
         json.dump(discard_set, r)
