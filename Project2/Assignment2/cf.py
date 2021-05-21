@@ -18,7 +18,7 @@ MOVIES_LOCATION = DATA_LOCATION + "/movies.csv"
 
 # We obtain better results with k=4 than k=10
 NEIGHBOUR_SIZE = 4
-EVALUATION_SIZE = 100
+EVALUATION_SIZE = 10000
 
 def similar_pairs(movies_ratings, num_users):
     movies_matrix = {}
