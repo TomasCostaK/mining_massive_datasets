@@ -16,7 +16,7 @@ DATA_LOCATION = sys.argv[1] # this is the ratings csv
 RATINGS_LOCATION = DATA_LOCATION + "/ratings.csv"
 MOVIES_LOCATION = DATA_LOCATION + "/movies.csv"
 
-NEIGHBOUR_SIZE = 4
+NEIGHBOUR_SIZE = 10
 EVALUATION_SIZE = 1000
 
 def similar_pairs(movies_ratings, num_users):
@@ -46,13 +46,14 @@ def calculate_similarity(vector1, vector2):
     # The similarity has no direction, so we define it in both movies
     return cosine_sim
 
-def recommend_movies(users, matrix, target_movie, target_user):
+def recommend_movies(users_rdd, matrix, target_movie, target_user, mean_movie):
     # Iteratve over every user and find k most similar pairs
     target_user = str(target_user)
     target_movie = str(target_movie)
     user_flag = -1
+    users = users_rdd.collect()
     try:
-        for user, ratings in users.collect():
+        for user, ratings in users:
             if user == target_user:
                 user_flag = 1
                 most_similar = []
@@ -75,17 +76,18 @@ def recommend_movies(users, matrix, target_movie, target_user):
     Recommended rating for movie 1 by user 1 == 4.7
     """
     if user_flag == 1:
-        return float(sum([ sim*matrix[id2][int(target_user)-1] for id1, id2, sim in most_similar]) / sum([sim for id1, id2, sim in most_similar]))
+        bxi = get_baseline(target_user,users,target_movie, movies_matrix, mean_movie)
+        return bxi + float(sum([ sim*(matrix[id2][int(target_user)-1]-get_baseline(target_user,users,id2,movies_matrix, mean_movie)) for id1, id2, sim in most_similar]) / sum([sim for id1, id2, sim in most_similar]))
 
     return 
 
-def evaluate_model(data, users, matrix):
+def evaluate_model(data, users, matrix, mean_movie):
     # evaluate one by one and check if the rating is equal to
     targets = []
     predictions = []
     for line in data:
         usr, movie_id, rating, unused = line
-        rec_rating = recommend_movies(users, matrix, movie_id, usr)
+        rec_rating = recommend_movies(users, matrix, movie_id, usr, mean_movie)
         targets.append(float(rating))
         predictions.append(rec_rating)
 
@@ -95,6 +97,33 @@ def evaluate_model(data, users, matrix):
     print("\nMETRICS ANALYSIS:\nRMSE == %.2f" % (rmse))
     print("Precision == ", precision)
     return rmse, precision
+
+def get_baseline(target_user, users, target_movie, matrix, mean_movie):
+    bx = get_mean_users(target_user, users) - mean_movie
+    bi = get_mean_movie(target_movie, matrix) - mean_movie
+    baseline = mean_movie + bx + bi
+
+    return baseline
+
+# This function can get the mean of a user
+def get_mean_users(target, data):
+    for line in data:
+        if str(target) == line[0]:
+            mean = sum([float(rating) for idx, rating in line[1]])/len(line[1])
+            return mean
+            break
+    return
+
+# This function can get the mean of a movie
+def get_mean_movie(target, data):
+    if target in data.keys():
+        mean = np.nanmean(data[target]) / len(data[target])
+        return mean
+    return
+
+def get_overall_mean(matrix):
+    overall_mean = sum([np.nanmean(values) for key, values in matrix.items() ])/len(matrix.keys())
+    return overall_mean
 
 if __name__ == "__main__":
     sc = SparkContext(appName="CF_Recommendation")
@@ -110,9 +139,10 @@ if __name__ == "__main__":
                                     .map(lambda line: line.split(","))         
 
     users = ratings_data.map(lambda tokens: (tokens[0],(tokens[1], tokens[2]))) \
-                                    .groupByKey()
+                                    .groupByKey() \
+                                    
     num_users = users.distinct().count()
-
+    users = users.mapValues(list) 
     #print("-----------------------------------------\n Num of users is: %d" % (num_users))
 
     ratings = ratings_data.map(lambda tokens: (tokens[1],(tokens[0],tokens[2]))) \
@@ -122,13 +152,29 @@ if __name__ == "__main__":
 
     movies_matrix = similar_pairs(ratings, num_users)
 
-    rmse, precision =evaluate_model(ratings_data.take(EVALUATION_SIZE), users, movies_matrix)
+    movie_mean = get_overall_mean(movies_matrix)
+
+    rmse, precision =evaluate_model(ratings_data.take(EVALUATION_SIZE), users, movies_matrix, movie_mean)
     eta = time.time()-tic
     print("ETA: %.2f seconds" % (eta))
 
-    with open("results_"+str(EVALUATION_SIZE)+".txt",'w+') as f:
+
+    with open("results_hybrid_"+str(EVALUATION_SIZE)+".txt",'w+') as f:
         f.write("rmse = " + str(rmse))
         f.write("\nprecision = " + str(precision))
         f.write("\ntime spent = " + str(eta))
 
     sc.stop()
+
+""" 
+OLD CF:
+rmse = 1.1410677868346741
+precision = 0.412
+time spent = 248.744713306427
+
+NEW CF:
+rmse = 1.1263801609472586
+precision = 0.402
+time spent = 211.37431406974792
+
+"""
