@@ -16,8 +16,9 @@ DATA_LOCATION = sys.argv[1] # this is the ratings csv
 RATINGS_LOCATION = DATA_LOCATION + "/ratings.csv"
 MOVIES_LOCATION = DATA_LOCATION + "/movies.csv"
 
-NEIGHBOUR_SIZE = 10
-EVALUATION_SIZE = 1000
+# We obtain better results with k=4 than k=10
+NEIGHBOUR_SIZE = 4
+EVALUATION_SIZE = 100
 
 def similar_pairs(movies_ratings, num_users):
     movies_matrix = {}
@@ -159,7 +160,7 @@ if __name__ == "__main__":
     print("ETA: %.2f seconds" % (eta))
 
 
-    with open("results_hybrid_"+str(EVALUATION_SIZE)+".txt",'w+') as f:
+    with open(sys.argv[2]+"results_hybrid_"+str(EVALUATION_SIZE)+".txt",'w+') as f:
         f.write("rmse = " + str(rmse))
         f.write("\nprecision = " + str(precision))
         f.write("\ntime spent = " + str(eta))
