@@ -1,6 +1,7 @@
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
 import sys
+import os
 
 # Visual improvement for development
 def quiet_logging(context):
@@ -10,6 +11,9 @@ def quiet_logging(context):
 
 # Examples taken from: http://spark.apache.org/docs/latest/streaming-programming-guide.html
 if __name__ == "__main__":
+    # Most popular N
+    N_MOST = 5
+
     # Create a local StreamingContext with two working thread and batch interval of user given seconds
     sc = SparkContext(appName="LocationsStream")
     ssc = StreamingContext(sc, int(sys.argv[2]))
@@ -25,11 +29,19 @@ if __name__ == "__main__":
     counts = pairs.map(lambda location: (location[1], 1))\
                     .reduceByKey(lambda a, b: a+b)\
 
-    counts.transform(
-        lambda x: sc.parallelize(x.take(5))
+    batch_counts = counts.transform(lambda x: 
+                            x.sortBy(lambda x:x[1],ascending=False)\
+                    )
+
+    ordered_counts = batch_counts.transform(
+        lambda x: sc.parallelize(x.take(N_MOST))
     )
 
-    counts.pprint()
+    ordered_counts.pprint()
+
+    # Generate the text as a subprocess
+    cmd = "python3 generate_stream.py %s %s" % (sys.argv[2], sys.argv[3])
+    os.system(cmd)
 
     ssc.start()             # Start the computation
     ssc.awaitTermination()  # Wait for the computation to terminate
