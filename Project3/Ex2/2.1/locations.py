@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     # Create a DStream that will connect to the data file given
     # We need to run the program and only then, insert the files we want to count locations into this directory
-    lines = ssc.socketTextStream("localhost", 9999)
+    lines = ssc.socketTextStream("localhost", 9998)
 
     # Split each line into pairs (Timestamp, location)
     pairs = lines.map(lambda line: line.split("\t"))
