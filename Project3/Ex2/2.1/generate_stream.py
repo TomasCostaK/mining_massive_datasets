@@ -11,7 +11,7 @@ if __name__ == "__main__":
     in_filename = sys.argv[2]
     # Socket comms
     out_address = "localhost"
-    out_port = 9998
+    out_port = 9999
     s = socket.socket()
     s.bind((out_address, out_port))
     s.listen(1)
