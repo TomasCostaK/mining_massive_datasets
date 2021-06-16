@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     # Create a local StreamingContext with two working thread and batch interval of user given seconds
     sc = SparkContext(appName="LocationsStream")
-    ssc = StreamingContext(sc, int(sys.argv[2]))
+    ssc = StreamingContext(sc, int(sys.argv[1]))
     quiet_logging(sc)
 
     # Create a DStream that will connect to the data file given
