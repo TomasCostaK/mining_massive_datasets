@@ -1,7 +1,6 @@
 from pyspark import SparkContext
 from pyspark.streaming import StreamingContext
 import sys
-import os
 
 # Visual improvement for development
 def quiet_logging(context):
@@ -21,7 +20,7 @@ if __name__ == "__main__":
 
     # Create a DStream that will connect to the data file given
     # We need to run the program and only then, insert the files we want to count locations into this directory
-    lines = ssc.textFileStream(sys.argv[1])
+    lines = ssc.socketTextStream("localhost", 9999)
 
     # Split each line into pairs (Timestamp, location)
     pairs = lines.map(lambda line: line.split("\t"))
@@ -38,10 +37,6 @@ if __name__ == "__main__":
     )
 
     ordered_counts.pprint()
-
-    # Generate the text as a subprocess
-    cmd = "python3 generate_stream.py %s %s" % (sys.argv[2], sys.argv[3])
-    os.system(cmd)
 
     ssc.start()             # Start the computation
     ssc.awaitTermination()  # Wait for the computation to terminate
