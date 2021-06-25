@@ -2,20 +2,20 @@ from sklearn.cluster import KMeans
 from sklearn.metrics.cluster import adjusted_rand_score
 import json
 
-num_nodes_user = {"0": 14,
+num_nodes_user = {"0": 9,
                   "107": 5,
-                  "348": 7,
-                  "414": 8,
-                  "686": 3,
-                  "698": 11,
-                  "1684": 16,
-                  "1912": 6,
-                  "3437": 7,
-                  "3980": 10}
+                  "348": 10,
+                  "414": 3,
+                  "686": 5,
+                  "698": 8,
+                  "1684": 3,
+                  "1912": 4,
+                  "3437": 3,
+                  "3980": 4}
 
 PATH_DATA = "data/facebook/"
 
-with open("user-eigenvalues-eigenvectors.json", "r") as reader:
+with open("weighted-user-eigenvalues-eigenvectors.json", "r") as reader:
     data = json.load(reader)
 
 user_score = {}

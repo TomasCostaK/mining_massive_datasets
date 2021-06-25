@@ -44,7 +44,7 @@ for u in users:
     user_eigenvalues[u] = eigenvalues
     user_eigenvectors[u] = eigenvectors
 
-with open("user-eigenvalues-eigenvectors.json", "w") as results:
+with open("weighted-user-eigenvalues-eigenvectors.json", "w") as results:
     user_results = {}
     for u in user_eigenvalues: user_results[u] = [user_eigenvalues[u].tolist(), user_eigenvectors[u].tolist()]
     json.dump(user_results, results)
