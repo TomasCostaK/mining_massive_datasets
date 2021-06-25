@@ -14,12 +14,14 @@ user_eigenvalues = {}
 
 for u in users:
     G = nx.Graph()
+    user_counter = 0
 
     with open(PATH_DATA + u +".circles") as friend_reader:
         for line in friend_reader:
             ls = line.rstrip().split("\t")
             for n in ls[1:]:    
                 G.add_node(int(n))
+                user_counter+=1
 
     with open(PATH_DATA + u + ".edges") as friend_reader:
         for line in friend_reader:
@@ -29,6 +31,8 @@ for u in users:
     
     A = nx.laplacian_matrix(G)
     eigenvalues, eigenvectors = np.linalg.eigh(A.todense())
+
+    print(len(eigenvalues), user_counter, A.todense().shape)
 
     user_eigenvalues[u] = eigenvalues
     user_eigenvectors[u] = eigenvectors

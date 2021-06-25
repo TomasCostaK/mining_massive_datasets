@@ -22,13 +22,31 @@ user_score = {}
 
 for u in num_nodes_user:
 
-    with open(u+".circles","r") as reader:
-        
-
     kmeans = KMeans(n_clusters=num_nodes_user[u])
 
-    eigenvectors = data[u][1]
+    eigenvectors = []
+    for e in data[u][1]:
+        eigenvectors.append(e[:30])
 
-    kmeans = kmeans.fit(eigenvectors[:30])
+    kmeans = kmeans.fit(eigenvectors)
 
-    print(kmeans.labels_)
+    user_circles = []
+    user_control = set()
+
+    with open(PATH_DATA + u +".circles") as friend_reader:
+        for line in friend_reader:
+            ls = line.rstrip().split("\t")
+            for n in ls[1:]:
+                if n not in user_control:
+                    user_circles.append(ls[0])
+                    user_control.add(n)
+
+    print(u, "has", len(user_circles))
+
+    solution = kmeans.labels_[:len(user_circles)]
+
+    user_score[u] = adjusted_rand_score(solution, user_circles)
+
+    print(u, "with score", adjusted_rand_score(solution, user_circles))
+
+print(user_score)
