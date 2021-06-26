@@ -3,7 +3,7 @@ from pyspark.streaming import StreamingContext
 import sys
 
 # Most popular N
-N_MOST = 5
+N_MOST = 10
 C_VAR = 10**-6
 
 # Create a local StreamingContext with two working thread and batch interval of user given seconds
@@ -21,11 +21,13 @@ def quiet_logging(context):
 def decayingWindow(incoming_stream, prev_stream):
     # First iterations, we add the whole stream as an empty array and a count of 0 elements
     if prev_stream == None:
-        prev_stream = {}
+        prev_stream = [[], []]
 
     # Sample is the array of the previous stream
-    sample = prev_stream
     distinct_elems = set(incoming_stream)
+
+    sample_values = []
+    sample_weights = []
 
     # Iterate every new user on the stream, calculate weights for each
     for elem in distinct_elems:
@@ -40,24 +42,23 @@ def decayingWindow(incoming_stream, prev_stream):
         
             count = (count) * (1-C_VAR) + (1 if elem == incoming_stream[inc_elem_idx] else 0)
 
-        if elem not in sample.keys():
-            sample[elem] = count
+        if elem not in sample_values:
+            sample_values.append(elem)
+            sample_weights.append(count)
         else:
-            sample[elem] += count
-            print("+1 mail: ", elem)
+            idx = sample_values.index(elem)
+            sample_weights[idx] += count
     
-    return sample
+    return [sample_values,sample_weights]
 
 def getOrderedCounts(rdd):
-    try:
-        counts_dict = rdd.map(lambda x: x[1]).collect()[0]
-        
-        batch_counts = sorted(counts_dict,key=lambda x: x[1], reverse=True)[:N_MOST]
-        print("Most Popular Users: ", batch_counts)
-
-        return rdd
-    except:
-        return rdd
+    # We grab the two lists, and then map them into a better struct (value, weight)
+    counts_dict = rdd.map(lambda x: x[1]) \
+            .map(lambda x: [(x[0][i], x[1][i]) for i in range(len(x[0]))]) \
+            .flatMap(lambda x: x)
+    
+    ordered_dict = counts_dict.sortBy(lambda x: x[1],ascending=False)
+    return ordered_dict
 
 # Examples taken from: http://spark.apache.org/docs/latest/streaming-programming-guide.html
 if __name__ == "__main__":
@@ -79,7 +80,7 @@ if __name__ == "__main__":
 
     ordered_counts = sampled_data.transform(getOrderedCounts)
 
-    ordered_counts.pprint()
+    ordered_counts.pprint(N_MOST)
 
     ssc.start()             # Start the computation
     ssc.awaitTermination()  # Wait for the computation to terminate
