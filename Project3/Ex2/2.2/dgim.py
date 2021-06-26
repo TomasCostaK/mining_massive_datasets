@@ -27,6 +27,7 @@ if __name__ == "__main__":
 
     batch_counts = counts.transform(lambda x: 
                             x.sortBy(lambda x:x[1],ascending=False)\
+                            .filter(lambda x: x[0]=='1')
                     )
 
     batch_counts.pprint()
