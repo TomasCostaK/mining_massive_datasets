@@ -1,6 +1,8 @@
 # Exercise 2.2 - Batch sized interval streams
 DGIM on a bit stream
 
+## Help
+To evaluate the queries, we test for these values = [5, 10, 15, 20, 50]
 ## How to Run
 Start the stream generator:
 
