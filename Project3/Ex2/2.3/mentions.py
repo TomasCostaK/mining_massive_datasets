@@ -74,7 +74,7 @@ if __name__ == "__main__":
     pairs = lines.map(lambda line: line.split("\t"))
 
     # We always use the same key so we can update by key
-    pre_sampled_data = pairs.map(lambda location: (0,location[1])) \
+    pre_sampled_data = pairs.map(lambda mention: (0,mention[1])) \
 
     sampled_data = pre_sampled_data.updateStateByKey(decayingWindow)
 
